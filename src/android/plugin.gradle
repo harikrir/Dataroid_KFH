@@ -1,0 +1,92 @@
+// Dataroid Cordova Plugin - Android Gradle Configuration
+
+// Read plugin variables from the Cordova project's package.json (single source of truth)
+def dataroidPushEnabled = false
+def dataroidGeofenceEnabled = false
+def dataroidSnapshotEnabled = false
+def dataroidDbEncryptionEnabled = false
+def dataroidDbMigrationKeyPresent = false
+def cordovaProjectRoot = rootProject.projectDir.parentFile.parentFile
+def packageJsonFile = new File(cordovaProjectRoot, 'package.json')
+if (packageJsonFile.exists()) {
+    try {
+        def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.text)
+        def pluginVars = packageJson?.cordova?.plugins?.get('cordova-plugin-dataroid-sdk')
+        if (pluginVars?.PUSH_ENABLED) {
+            dataroidPushEnabled = pluginVars.PUSH_ENABLED.toString().equalsIgnoreCase('true')
+        }
+        if (pluginVars?.GEOFENCE_ENABLED) {
+            dataroidGeofenceEnabled = pluginVars.GEOFENCE_ENABLED.toString().equalsIgnoreCase('true')
+        }
+        if (pluginVars?.SNAPSHOT_ENABLED) {
+            dataroidSnapshotEnabled = pluginVars.SNAPSHOT_ENABLED.toString().equalsIgnoreCase('true')
+        }
+        dataroidDbMigrationKeyPresent = pluginVars?.DB_ENCRYPTION_KEY?.toString()?.matches('[0-9a-fA-F]{64}') ?: false
+        if (pluginVars?.DB_ENCRYPTION_ENABLED) {
+            dataroidDbEncryptionEnabled = pluginVars.DB_ENCRYPTION_ENABLED.toString().equalsIgnoreCase('true')
+        }
+    } catch (Exception e) {
+        logger.warn("[Dataroid] Failed to parse package.json: ${e.message}. Defaulting PUSH_ENABLED=false, GEOFENCE_ENABLED=false, SNAPSHOT_ENABLED=false, DB_ENCRYPTION_ENABLED=false.")
+    }
+}
+
+logger.lifecycle("[Dataroid] PUSH_ENABLED = ${dataroidPushEnabled} (from ${packageJsonFile.absolutePath})")
+logger.lifecycle("[Dataroid] GEOFENCE_ENABLED = ${dataroidGeofenceEnabled} (from ${packageJsonFile.absolutePath})")
+logger.lifecycle("[Dataroid] SNAPSHOT_ENABLED = ${dataroidSnapshotEnabled} (from ${packageJsonFile.absolutePath})")
+logger.lifecycle("[Dataroid] DB_ENCRYPTION_ENABLED = ${dataroidDbEncryptionEnabled} (from ${packageJsonFile.absolutePath})")
+
+repositories {
+    mavenCentral()
+    google()
+    maven {
+        // Dataroid SDK Maven repository
+        url 'https://nexus.dataroid.com/repository/dataroid-sdk-android-maven/'
+    }
+}
+
+dependencies {
+    // Dataroid SDK BOM keeps core and optional addon artifacts aligned.
+    implementation platform('com.dataroid:dataroid-android-sdk-bom:4.8.2')
+    implementation 'com.dataroid:dataroid-android-sdk'
+
+    if (dataroidPushEnabled) {
+        // Dataroid SDK - Google/Firebase variant (for push notifications)
+        implementation 'com.dataroid:dataroid-android-sdk-google'
+
+        // Firebase Messaging (for push notifications)
+        implementation 'com.google.firebase:firebase-messaging:23.1.2'
+    }
+
+    if (dataroidPushEnabled || dataroidGeofenceEnabled) {
+        // Play Services Location (for geofencing and location-based notifications)
+        implementation 'com.google.android.gms:play-services-location:21.0.1'
+    }
+
+    if (dataroidSnapshotEnabled) {
+        // Dataroid SDK - Snapshot module (screen capture for funnel/path reports)
+        implementation 'com.dataroid:dataroid-android-sdk-snapshot'
+    }
+
+    if (dataroidDbEncryptionEnabled || dataroidDbMigrationKeyPresent) {
+        // SQLCipher is also needed to decrypt an existing database during migration
+        implementation 'net.zetetic:sqlcipher-android:4.13.0'
+    }
+
+    // Preserve Cordova's API 21 and Kotlin 1.8/1.9 host compatibility. The BOM
+    // defaults to database 2.2.0 (minSdk 23, Kotlin 2.x); the compat track uses
+    // Room 2.6.1 and remains supported by SDK 4.8.2.
+    constraints {
+        implementation('com.dataroid:dataroid-android-sdk-database') {
+            version {
+                strictly '1.2.0'
+            }
+        }
+    }
+}
+
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
